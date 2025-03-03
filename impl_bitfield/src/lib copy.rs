@@ -1,7 +1,8 @@
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use regex::Regex;
 use syn::{
-    Ident, Token,
+    DeriveInput, Ident, Token,
     parse::Parse,
     parse_macro_input,
     token::{Pub, Struct},
@@ -61,6 +62,22 @@ impl Parse for MyStruct {
     }
 }
 
+// fn extract_number(ident_str: &str) -> usize {
+//     let new_ident_str = match ident_str {
+//         "A" => "B1",
+//         "B" => "B3",
+//         "C" => "B4",
+//         "D" => "B24",
+//         _ => ident_str,
+//     };
+
+//     let re = Regex::new("[0-9]+").unwrap();
+//     println!("Herehere");
+//     let m: regex::Match<'_> = re.find(&new_ident_str).unwrap();
+
+//     m.as_str().parse::<usize>().unwrap()
+// }
+
 #[proc_macro_attribute]
 pub fn bitfield(
     _: proc_macro::TokenStream,
@@ -77,14 +94,22 @@ pub fn bitfield(
 
     let a = my_struct.a;
     let b1 = my_struct.b1;
+    let b1_str = b1.to_string();
     let b = my_struct.b;
     let b3 = my_struct.b3;
+    let b3_str = b3.to_string();
     let c = my_struct.c;
     let b4 = my_struct.b4;
+    let b4_str = b4.to_string();
     let d = my_struct.d;
     let b24 = my_struct.b24;
+    let b24_str = b24.to_string();
 
-    let b_type_iterator = (1usize..=64).map(|number| {
+    println!("hello");
+
+    // let size = (matched_int_b1 + matched_int_b3 + matched_int_b4 + matched_int_b24) / 8;
+
+    let b_type_iterator = (1..=64).map(|number| {
         let b_type = Ident::new(&format!("B{}", number), Span::call_site());
         quote! {
             enum #b_type {}
@@ -110,7 +135,7 @@ pub fn bitfield(
     let output_struct = quote! {
         #[repr(C)]
         #pub_kw #struct_kw #struct_name {
-            data: [u8; (<#b1 as Specifier>::BITS + <#b3 as Specifier>::BITS + <#b4 as Specifier>::BITS + <#b24 as Specifier>::BITS)/8],
+            data: [u8; <#b1 as Specifier>::BITS + <#b3 as Specifier>::BITS +<#b4 as Specifier>::BITS <#b24 as Specifier>::BITS ],
         }
 
         impl #struct_name {
