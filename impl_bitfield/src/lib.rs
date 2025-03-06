@@ -1,65 +1,11 @@
 use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::{
-    Ident, Token,
+    AssocType, DeriveInput, Ident, Token,
     parse::Parse,
     parse_macro_input,
     token::{Pub, Struct},
 };
-// #[derive(Debug)]
-struct MyStruct {
-    pub_kw: Pub,
-    struct_kw: Struct,
-    struct_name: Ident,
-    a: Ident,
-    b1: Ident,
-    b: Ident,
-    b3: Ident,
-    c: Ident,
-    b4: Ident,
-    d: Ident,
-    b24: Ident,
-}
-
-impl Parse for MyStruct {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let pub_kw = input.parse::<Token![pub]>()?;
-        let struct_kw = input.parse::<Token![struct]>()?;
-        let struct_name: Ident = input.parse()?;
-        let content;
-        let _ = syn::braced!(content in input);
-        let a: Ident = content.parse()?;
-        let _ = content.parse::<Token![:]>()?;
-        let b1: Ident = content.parse()?;
-        let _ = content.parse::<Token![,]>()?;
-        let b: Ident = content.parse()?;
-        let _ = content.parse::<Token![:]>()?;
-        let b3: Ident = content.parse()?;
-        let _ = content.parse::<Token![,]>()?;
-        let c: Ident = content.parse()?;
-        let _ = content.parse::<Token![:]>()?;
-        let b4: Ident = content.parse()?;
-        let _ = content.parse::<Token![,]>()?;
-        let d: Ident = content.parse()?;
-        let _ = content.parse::<Token![:]>()?;
-        let b24: Ident = content.parse()?;
-        let _ = content.parse::<Token![,]>()?;
-
-        Ok(MyStruct {
-            pub_kw,
-            struct_kw,
-            struct_name,
-            a,
-            b1,
-            b,
-            b3,
-            c,
-            b4,
-            d,
-            b24,
-        })
-    }
-}
 
 #[proc_macro_attribute]
 pub fn bitfield(
@@ -69,20 +15,52 @@ pub fn bitfield(
     eprintln!("input2: {:#?}", input2);
     let input3_clone = input2.clone();
 
-    let my_struct: MyStruct = parse_macro_input!(input3_clone);
+    let ast: DeriveInput = parse_macro_input!(input3_clone);
 
-    let pub_kw = my_struct.pub_kw;
-    let struct_kw = my_struct.struct_kw;
-    let struct_name = my_struct.struct_name;
+    let ident = ast.ident;
 
-    let a = my_struct.a;
-    let b1 = my_struct.b1;
-    let b = my_struct.b;
-    let b3 = my_struct.b3;
-    let c = my_struct.c;
-    let b4 = my_struct.b4;
-    let d = my_struct.d;
-    let b24 = my_struct.b24;
+    let data = ast.data;
+    let fields = match data {
+        syn::Data::Struct(syn::DataStruct { fields, .. }) => fields,
+        _ => unimplemented!(),
+    };
+
+    let builder_name = format_ident!("{}builder", ident);
+    let inner_output = fields.clone().into_iter().map(|field| {
+        let f_ident = field.ident.unwrap();
+        let f_ty = field.ty;
+        quote! {
+            #f_ident:<#f_ty as Specifier>::AssocType,
+        }
+    });
+
+    let builder_struct = quote! {
+        struct #builder_name {
+            #(#inner_output)*
+        }
+    };
+
+    let set_get_inner = fields.clone().into_iter().map(|field| {
+        let f_ident = field.ident.unwrap();
+        let f_ty = field.ty;
+
+        let get_func_name = format_ident!("get_{}", f_ident);
+        let set_func_name = format_ident!("set_{}", f_ident);
+        quote! {
+
+                  fn #get_func_name(&self) -> <#f_ty as Specifier>::AssocType{
+                      self.#f_ident
+                  }
+                  fn #set_func_name(&mut self,value: <#f_ty as Specifier>::AssocType) {
+                      self.#f_ident=value
+                  }
+        }
+    });
+    let set_get = quote! {
+                    impl #builder_name {
+                        #(#set_get_inner)*
+        }
+    };
 
     let b_type_iterator = (1usize..=64).map(|number| {
         let b_type = Ident::new(&format!("B{}", number), Span::call_site());
@@ -94,70 +72,53 @@ pub fn bitfield(
             }
         }
     });
-    let output = proc_macro2::TokenStream::from_iter(b_type_iterator);
+    let enum_type = proc_macro2::TokenStream::from_iter(b_type_iterator);
 
-    let builder_name = format_ident!("{}builder", struct_name);
+    let size_calc = fields.clone().into_iter().map(|field| {
+        let ty = field.ty;
+        quote! { + <#ty as Specifier>::BITS
+        }
+    });
 
-    let builder_struct = quote! {
-        struct #builder_name {
-            #a:<#b1 as Specifier>::AssocType,
-            #b:<#b3 as Specifier>::AssocType,
-            #c:<#b4 as Specifier>::AssocType,
-            #d:<#b24 as Specifier>::AssocType,
+    let new_token_stream = proc_macro2::TokenStream::from_iter(size_calc);
+
+    let check_size = quote! {
+        fn _check() {
+            let _:MyType<[(); (0  #new_token_stream) % 8]>;
         }
     };
 
-    let output_struct = quote! {
+    let data_size = quote! {
         #[repr(C)]
-        #pub_kw #struct_kw #struct_name {
-            data: [u8; (<#b1 as Specifier>::BITS + <#b3 as Specifier>::BITS + <#b4 as Specifier>::BITS + <#b24 as Specifier>::BITS)/8],
+        struct #ident {
+            data: [u8; (0  #new_token_stream) / 8]
         }
+    };
 
-        impl #struct_name {
+    let struct_inner = fields.iter().map(|field| {
+        let ident = field.ident.as_ref().unwrap();
+        let ty = &field.ty;
+        quote! {
+            #ident:<#ty as Specifier>::AssocType::default(),
+        }
+    });
+    let struct_new = quote! {
+        impl #ident {
             fn new() -> #builder_name {
                 #builder_name {
-                    #a:<#b1 as Specifier>::AssocType::default(),
-                    #b:<#b3 as Specifier>::AssocType::default(),
-                    #c:<#b4 as Specifier>::AssocType::default(),
-                    #d:<#b24 as Specifier>::AssocType::default(),
+                    #(#struct_inner)*
                 }
-            }
-        }
-
-        impl #builder_name {
-            fn get_a(&self) -> <#b1 as Specifier>::AssocType{
-                self.a
-            }
-            fn set_a(&mut self,value: <#b1 as Specifier>::AssocType) {
-                self.a=value
-            }
-            fn get_b(&self) -> <#b3 as Specifier>::AssocType{
-                self.b
-            }
-            fn set_b(&mut self,value: <#b3 as Specifier>::AssocType) {
-                self.b=value
-            }
-            fn get_c(&self) -> <#b4 as Specifier>::AssocType{
-                self.c
-            }
-
-            fn set_c(&mut self,value: <#b4 as Specifier>::AssocType) {
-                self.c=value
-            }
-
-            fn get_d(&self) -> <#b24 as Specifier>::AssocType{
-                self.d
-            }
-
-            fn set_d(&mut self,value: <#b24 as Specifier>::AssocType) {
-                self.d=value
             }
         }
     };
 
     quote! {
-    #builder_struct
-    #output_struct
-    #output }
+        #builder_struct
+        #struct_new
+        #check_size
+        #data_size
+        #set_get
+        #enum_type
+    }
     .into()
 }
