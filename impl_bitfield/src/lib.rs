@@ -1,3 +1,5 @@
+use std::mem::Discriminant;
+
 use proc_macro2::Span;
 use quote::{ToTokens, format_ident, quote};
 use syn::{
@@ -20,38 +22,39 @@ fn check_if_bool(ty: &Type) -> bool {
 pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let data = ast.data;
+
     eprintln!("data is {:#?}", data);
-    let mut enum_elements: Vec<(&str, &Ident)> = Vec::new();
+    let mut enum_elements: Vec<&Ident> = Vec::new();
     let first_enum_ident = match data {
         syn::Data::Enum(DataEnum { ref variants, .. }) => {
             for x in variants {
                 eprintln!("variant's ident is {:#?}", x.ident);
                 eprintln!("variant's discriminant is {:#?}", x.discriminant);
-                let a = &x.discriminant.as_ref().unwrap().1;
 
-                let str = match a {
-                    syn::Expr::Lit(syn::ExprLit {
-                        lit: syn::Lit::Int(number),
-                        ..
-                    }) => number.base10_digits(),
-                    _ => unimplemented!(),
-                };
                 let ident = &x.ident;
-                enum_elements.push((str, ident));
+                enum_elements.push(ident);
             }
             eprintln!("variants[0]: {:#?}", variants[0].ident);
             &variants[0].ident
         }
-        _ => unimplemented!(),
+        _ => unimplemented!("here1"),
     };
+
     let enum_ident = ast.ident;
-    let impl_into_inner = enum_elements.iter().map(|(str, ident)| {
-        let number: u8 = str.parse().unwrap();
+
+    let impl_clone_inner = enum_elements.iter().map(|ident| {
         quote! {
-            #number =>  #enum_ident::#ident,
+            #enum_ident::#ident => #enum_ident::#ident,
         }
     });
-    quote! {
+
+    let impl_default_inner = enum_elements.iter().map(|ident| {
+        quote! {
+            if #enum_ident::#ident.discriminant() == 0 { return #enum_ident::#ident}
+        }
+    });
+
+    let output1 = quote! {
         impl #enum_ident {
             fn discriminant(&self) -> u8 {
                 // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
@@ -61,18 +64,20 @@ pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             }
         }
 
-        impl Into<#enum_ident> for u8 {
-            fn into(self) -> #enum_ident {
+        impl Clone for #enum_ident {
+            fn clone(&self) -> #enum_ident {
                 match self {
-                    #(#impl_into_inner)*
-                    _ => #enum_ident::#first_enum_ident,
+                    #(#impl_clone_inner)*
                 }
             }
         }
 
         impl Default for #enum_ident {
             fn default() -> Self {
-                #enum_ident::#first_enum_ident
+                #(#impl_default_inner)*
+                else {
+                    return #enum_ident::#first_enum_ident
+                }
             }
         }
 
@@ -83,9 +88,15 @@ pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 
         impl #enum_ident {
             fn get_value(value: &<#enum_ident as Specifier>::AssocType) -> <#enum_ident as Specifier>::AssocType {
-                value.discriminant().into()
+                value.clone()
             }
         }
+    };
+
+    eprintln!("output1 is {}", output1);
+
+    quote! {
+        #output1
     }
     .into()
 }
@@ -106,10 +117,10 @@ pub fn bitfield(
     let data = ast.data;
     let fields = match data {
         syn::Data::Struct(syn::DataStruct { fields, .. }) => fields,
-        _ => unimplemented!(),
+        _ => unimplemented!("here2"),
     };
 
-    let generate_empty_enum = (1usize..=4).map(|index| {
+    let generate_empty_enum = (1usize..=64).map(|index| {
         let index_ident = Ident::new(&format!("B{}", index), Span::call_site());
         let impl_specifier = match index {
             1..=8 => quote! {
@@ -136,7 +147,7 @@ pub fn bitfield(
                     type AssocType = u64;
                 }
             },
-            _ => unimplemented!(),
+            _ => unimplemented!("here3"),
         };
         quote! {
             enum #index_ident {}
@@ -162,7 +173,6 @@ pub fn bitfield(
         if check_if_bool(&ty) {
             return quote! {+ 1};
         }
-        // quote! { + std::mem::size_of::<#ty>()}
         quote! {+ <#ty as Specifier>::BITS}
     });
 
@@ -264,6 +274,7 @@ pub fn bitfield(
 
     // eprintln!("builder_struct is {}", builder_struct);
     let output = quote! {
+
         #(#generate_empty_enum)*
         #data_size
 
