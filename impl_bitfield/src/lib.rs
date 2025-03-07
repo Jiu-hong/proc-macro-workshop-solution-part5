@@ -3,11 +3,19 @@ use std::mem::Discriminant;
 use proc_macro2::Span;
 use quote::{ToTokens, format_ident, quote};
 use syn::{
-    DataEnum, DeriveInput, Ident, Token, Type, TypePath,
-    parse::Parse,
-    parse_macro_input,
+    DataEnum, DeriveInput, Error, Ident, Result, Type, parse_macro_input,
     token::{Pub, Struct},
 };
+
+fn check_if_power_2(num: usize) -> bool {
+    if (num & (num - 1)) != 0 {
+        println!("Given number is not power of 2.");
+        return false;
+    } else {
+        println!("Given number is power of 2.");
+        return true;
+    }
+}
 
 fn check_if_bool(ty: &Type) -> bool {
     match ty {
@@ -21,8 +29,13 @@ fn check_if_bool(ty: &Type) -> bool {
 #[proc_macro_derive(BitfieldSpecifier)]
 pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
-    let data = ast.data;
 
+    let result = expand(ast).unwrap_or_else(Error::into_compile_error);
+    result.into()
+}
+
+fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
+    let data = ast.data;
     eprintln!("data is {:#?}", data);
     let mut enum_elements: Vec<&Ident> = Vec::new();
     let first_enum_ident = match data {
@@ -39,6 +52,15 @@ pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenSt
         }
         _ => unimplemented!("here1"),
     };
+
+    if !check_if_power_2(enum_elements.len()) {
+        let error = Err(syn::Error::new(
+            // x.ident.span(),
+            Span::call_site(),
+            format!("BitfieldSpecifier expected a number of variants which is a power of 2"),
+        ));
+        return error;
+    }
 
     let enum_ident = ast.ident;
 
@@ -93,12 +115,7 @@ pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenSt
         }
     };
 
-    eprintln!("output1 is {}", output1);
-
-    quote! {
-        #output1
-    }
-    .into()
+    Ok(output1)
 }
 
 #[proc_macro_attribute]
@@ -152,10 +169,6 @@ pub fn bitfield(
         quote! {
             enum #index_ident {}
 
-            // impl Specifier for #index_ident {
-            //     const BITS:usize = #index;
-            //     type AssocType = u8;
-            // }
             #impl_specifier
 
             impl #index_ident {
@@ -176,13 +189,12 @@ pub fn bitfield(
         quote! {+ <#ty as Specifier>::BITS}
     });
 
-    let new_token_stream = proc_macro2::TokenStream::from_iter(size_calc);
-    eprintln!("new_token_stream is {}", new_token_stream);
+    let bit_length_stream = proc_macro2::TokenStream::from_iter(size_calc);
 
     let data_size = quote! {
         #[repr(C)]
         struct #ident {
-            data: [u8; (0  #new_token_stream) / 8]
+            data: [u8; (0  #bit_length_stream) / 8]
         }
     };
 
@@ -255,11 +267,6 @@ pub fn bitfield(
                 self.#ident = value;
             }
 
-            // fn #get_ident(&self)-> #ty {
-            //     let u8_value = self.#ident.discriminant();
-            //     let trigger_mode_value: #ty = u8_value.into();
-            //     trigger_mode_value
-            // }
             fn #get_ident(&self)-> <#ty as Specifier>::AssocType {
                 #ty::get_value(&self.#ident)
             }
@@ -272,7 +279,6 @@ pub fn bitfield(
         }
     };
 
-    // eprintln!("builder_struct is {}", builder_struct);
     let output = quote! {
 
         #(#generate_empty_enum)*
