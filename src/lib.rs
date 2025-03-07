@@ -1,8 +1,11 @@
+pub use impl_bitfield::BitfieldSpecifier;
 pub use impl_bitfield::bitfield;
 pub trait Specifier {
     const BITS: usize;
     type AssocType;
 }
+
+// pub use checks::MyType;
 
 pub type MyType<T> = <<T as AnotherTrait>::BBB as TotalSizeIsMultipleOfEightBits>::AAA;
 pub trait AnotherTrait {
