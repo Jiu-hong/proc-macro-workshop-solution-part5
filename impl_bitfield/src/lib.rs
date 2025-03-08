@@ -6,14 +6,6 @@ use syn::{
     parse_macro_input,
 };
 
-fn check_if_power_2(num: usize) -> bool {
-    if (num & (num - 1)) != 0 {
-        return false;
-    } else {
-        return true;
-    }
-}
-
 fn check_if_bool(ty: &Type) -> bool {
     match ty {
         Type::Path(type_path) if type_path.clone().into_token_stream().to_string() == "bool" => {
@@ -65,19 +57,17 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
 
     let bits_length = match logarithm_two(length) {
         Some(number) =>  number,
-        None => unimplemented!()
+        None => {
+            let error = Err(syn::Error::new(
+                // x.ident.span(),
+                Span::call_site(),
+                format!("BitfieldSpecifier expected a number of variants which is a power of 2"),
+            ));
+            return error;
+        }
     };
 
 
-
-    if !check_if_power_2(length) {
-        let error = Err(syn::Error::new(
-            // x.ident.span(),
-            Span::call_site(),
-            format!("BitfieldSpecifier expected a number of variants which is a power of 2"),
-        ));
-        return error;
-    }
 
     let impl_check_discrinminant_range = enum_elements.iter().map(|ident| {
         let new_ident = format_ident!("{}_check", ident);
