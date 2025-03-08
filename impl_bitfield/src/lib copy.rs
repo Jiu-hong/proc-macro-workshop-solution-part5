@@ -1,9 +1,16 @@
+mod sub_lib;
+
+use sub_lib::my_struct;
+
+use std::{fmt::format, io::Write, mem::Discriminant};
+
 use proc_macro2::{Literal, Punct, Span};
 use quote::{ToTokens, format_ident, quote};
 use syn::{
-    DataEnum, DeriveInput, Error, Ident, Result,  Type,
+    DataEnum, DeriveInput, Error, Expr, Ident, Result, Token, Type,
     parse::{Parse, ParseStream},
     parse_macro_input,
+    token::{Pub, Struct},
 };
 
 fn check_if_power_2(num: usize) -> bool {
@@ -23,15 +30,6 @@ fn check_if_bool(ty: &Type) -> bool {
     }
 }
 
-fn logarithm_two(x: usize) -> Option<usize> {
-    let result = (x as f64).log2();
-
-    if result == result.floor() {
-        return Some(result as usize);
-    }
-    None
-}
-
 #[proc_macro_derive(BitfieldSpecifier)]
 pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
@@ -43,7 +41,7 @@ pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
     let data = ast.data;
     let enum_ident = ast.ident;
-
+    // eprintln!("data is {:#?}", data);
     let mut enum_elements: Vec<&Ident> = Vec::new();
     let first_enum_ident = match data {
         syn::Data::Enum(DataEnum { ref variants, .. }) => {
@@ -57,18 +55,18 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
             &variants[0].ident
         }
         _ => {
+            eprintln!("data is {:#?}",data);
             unimplemented!()
         },
     };
 
+    // write actual attribute length to static
     let length = enum_elements.len();
-
-    let bits_length = match logarithm_two(length) {
-        Some(number) =>  number,
-        None => unimplemented!()
-    };
-
-
+    if enum_ident == "TriggerMode" {
+        unsafe { my_struct.trigger_mode = length }
+    } else if enum_ident == "DeliveryMode" {
+        unsafe { my_struct.delivery_mode = length }
+    }
 
     if !check_if_power_2(length) {
         let error = Err(syn::Error::new(
@@ -85,6 +83,7 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
             fn #new_ident() {
                 let _: <<[();(#enum_ident::#ident as usize)/#length] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
             }
+
         }
     });
 
@@ -100,11 +99,7 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
     });
 
-    let length_ident = format_ident!("{}_LENGTH",enum_ident);
     let output1 = quote! {
-
-        const #length_ident:usize = #bits_length;
-       
         impl #enum_ident {
             fn discriminant(&self) -> u8 {
                 unsafe { *<*const _>::from(self).cast::<u8>() }
@@ -140,12 +135,11 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
 
         #(#impl_check_discrinminant_range)*
+
     };
 
     Ok(output1)
 }
-
-
 #[derive(Debug)]
 struct MyStruct {
     literal: Literal,
@@ -176,45 +170,66 @@ pub fn bitfield(
 fn expand2(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
      // input2;
      let ident = ast.ident;
-     let mut token_stream_vec:Vec<proc_macro2::TokenStream> = vec![];
 
      let data = ast.data;
      let fields = match data {
          syn::Data::Struct(syn::DataStruct { fields, .. }) => fields,
          _ => unimplemented!("here2"),
      };
-    //  for field in fields.clone() {
-    // let get_vec_length = fields.clone().iter().map(|field|{
-    for field in fields.clone().iter() {
-        let ty = field.ty.clone();        
-        let attrs = &field.attrs;
-
-        for attr in attrs {
-            let tokens = attr.tokens.clone().into();
-
-            if attr.path.is_ident("bits") {
-               let aaa:MyStruct = syn::parse(tokens).unwrap();
-                if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
-                   let mut label_length1 = aaa.literal.clone();
-                   label_length1.set_span(aaa.literal.span());
-
-                   let ty_ident = &path.segments[0].ident;
-                   let fn_ident = format_ident!("{}_LENGTH_fn",ty_ident);
-                   let length_ident = format_ident!("{}_LENGTH",ty_ident);
-
-    
-                   let x = quote!{
-                    //    const #new_ident:usize = #label_length;
-                    fn #fn_ident() {
-                        let _: [_; #label_length1] = [(); #length_ident];
-                    }
-                   };
-                   token_stream_vec.push(x);
-                }
-            }
-    }}
-
-     let generate_empty_enum = (1usize..=64).map(|index| {
+     eprintln!("fields is {:#?}", fields);
+     for field in fields.clone() {
+         let ty = field.ty;
+         eprintln!("ty is {:#?}", &ty);
+         if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
+             let a = path.is_ident("DeliveryMode");
+             eprintln!("a is {:#?}", a);
+         }
+ 
+        //  let attrs = &field.attrs;
+        //  for attr in attrs.iter() {
+        //      let tokens = attr.tokens.clone().into();
+ 
+        //      if attr.path.is_ident("bits") {
+        //          // check ty name
+        //         //  let aaa = parse_macro_input!(tokens as MyStruct);
+        //         let aaa:MyStruct = syn::parse(tokens)?;
+        //          if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
+        //              if path.is_ident("DeliveryMode") {
+        //                  unsafe {
+        //                      // read to static
+ 
+        //                      if my_struct.delivery_mode != aaa.literal.to_string().parse().unwrap() {
+        //                          // error
+        //                          let error = Err(syn::Error::new(
+        //                             // x.ident.span(),
+        //                             Span::call_site(),
+        //                             format!("static here error"),
+        //                         ));
+        //                         return error;
+        //                      }
+        //                  }
+        //              } else {
+        //                  unsafe {
+        //                      // compare to static
+        //                      if my_struct.trigger_mode != aaa.literal.to_string().parse().unwrap() {
+        //                          // error
+        //                          eprintln!("my_struct.trigger_mode is {}",aaa.literal.to_string().parse::<usize>().unwrap());
+        //                          let error = Err(syn::Error::new(
+        //                             // x.ident.span(),
+        //                             Span::call_site(),
+        //                             format!("static here2 error"),
+        //                         ));
+        //                         return error;
+        //                      }
+        //                  }
+        //              }
+        //          }
+        //      }
+        //  }
+     
+     }
+ 
+     let generate_empty_enum = (1usize..=4).map(|index| {
          let index_ident = Ident::new(&format!("B{}", index), Span::call_site());
          let impl_specifier = match index {
              1..=8 => quote! {
@@ -352,11 +367,9 @@ fn expand2(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
              #(#set_get_inner)*
          }
      };
-
-     let generate_length: proc_macro2::TokenStream = proc_macro2::TokenStream::from_iter(token_stream_vec);
-
+ 
      let output = quote! {
-        #generate_length
+ 
          #(#generate_empty_enum)*
          #data_size
  
@@ -373,4 +386,3 @@ fn expand2(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
      // input2
      Ok(output.into())
 }
-

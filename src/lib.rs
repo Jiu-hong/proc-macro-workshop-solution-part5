@@ -1,13 +1,11 @@
 pub use impl_bitfield::BitfieldSpecifier;
 pub use impl_bitfield::bitfield;
 
+// In the shared configuration crate
+
 pub trait Specifier {
     const BITS: usize;
     type AssocType;
-}
-
-pub trait Range {
-    const ISINRANGE: usize;
 }
 
 // pub use checks::MyType;
