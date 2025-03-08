@@ -1,13 +1,47 @@
 pub use impl_bitfield::BitfieldSpecifier;
 pub use impl_bitfield::bitfield;
+
 pub trait Specifier {
     const BITS: usize;
     type AssocType;
 }
 
+pub trait Range {
+    const ISINRANGE: usize;
+}
+
 // pub use checks::MyType;
 
 pub type MyType<T> = <<T as AnotherTrait>::BBB as TotalSizeIsMultipleOfEightBits>::AAA;
+
+// pub type MyType2<T> = <T as DiscriminantInRange>::CCC;
+pub type MyType2<T> = <<T as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
+// new here
+pub trait DiscriminantInRange {
+    type PlaceHolder;
+}
+
+pub enum True {}
+pub enum False {}
+
+pub trait MyTempTrait {
+    type CCC;
+}
+
+impl MyTempTrait for [(); 0] {
+    type CCC = True;
+}
+
+impl MyTempTrait for [(); 1] {
+    type CCC = False;
+}
+
+impl DiscriminantInRange for True {
+    type PlaceHolder = ();
+}
+
+// new here
+
 pub trait AnotherTrait {
     type BBB;
 }

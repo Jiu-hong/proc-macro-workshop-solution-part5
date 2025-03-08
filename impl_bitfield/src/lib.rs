@@ -1,4 +1,4 @@
-use std::mem::Discriminant;
+use std::{fmt::format, mem::Discriminant};
 
 use proc_macro2::Span;
 use quote::{ToTokens, format_ident, quote};
@@ -36,6 +36,7 @@ pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 
 fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
     let data = ast.data;
+    let enum_ident = ast.ident;
     eprintln!("data is {:#?}", data);
     let mut enum_elements: Vec<&Ident> = Vec::new();
     let first_enum_ident = match data {
@@ -53,7 +54,9 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
         _ => unimplemented!("here1"),
     };
 
-    if !check_if_power_2(enum_elements.len()) {
+    let length = enum_elements.len();
+
+    if !check_if_power_2(length) {
         let error = Err(syn::Error::new(
             // x.ident.span(),
             Span::call_site(),
@@ -62,7 +65,15 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
         return error;
     }
 
-    let enum_ident = ast.ident;
+    let impl_check_discrinminant_range = enum_elements.iter().map(|ident| {
+        let new_ident = format_ident!("{}_check", ident);
+        quote! {
+            fn #new_ident() {
+                let _: <<[();(#enum_ident::#ident as usize)/#length] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
+            }
+
+        }
+    });
 
     let impl_clone_inner = enum_elements.iter().map(|ident| {
         quote! {
@@ -79,9 +90,6 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
     let output1 = quote! {
         impl #enum_ident {
             fn discriminant(&self) -> u8 {
-                // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
-                // between `repr(C)` structs, each of which has the `u8` discriminant as its first
-                // field, so we can read the discriminant without offsetting the pointer.
                 unsafe { *<*const _>::from(self).cast::<u8>() }
             }
         }
@@ -113,6 +121,9 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
                 value.clone()
             }
         }
+
+        #(#impl_check_discrinminant_range)*
+
     };
 
     Ok(output1)
