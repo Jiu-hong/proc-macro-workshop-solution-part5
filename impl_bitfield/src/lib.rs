@@ -68,6 +68,7 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
 
         let new_ident = format_ident!("{}_check", ident);
         quote! {
+            // #[allow(non_snake_case)]
             fn #new_ident() {
                 let _: <<[();(#enum_ident::#ident as usize)/#discriminant_len] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
             }
@@ -89,6 +90,7 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
     let length_ident = format_ident!("{}_LENGTH",enum_ident);
     let output = quote! {
 
+        #[allow(non_upper_case_globals)]
         const #length_ident:usize = #bits_len;
        
         impl #enum_ident {
