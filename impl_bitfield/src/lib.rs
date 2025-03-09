@@ -75,7 +75,7 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
         }
     });
 
-    let impl_clone_inner = enum_elements.iter().map(|ident| {
+    let get_value_inner = enum_elements.iter().map(|ident| {
         quote! {
             #enum_ident::#ident => #enum_ident::#ident,
         }
@@ -105,7 +105,7 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
         impl #enum_ident {
             fn get_value(value: &<#enum_ident as Specifier>::AssocType) -> <#enum_ident as Specifier>::AssocType {
                 match value {
-                    #(#impl_clone_inner)*
+                    #(#get_value_inner)*
                 }
             }
         }
@@ -168,8 +168,8 @@ fn expand_bitfield(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
          _ => unimplemented!("here2"),
      };
 
-    for field in fields.clone().into_iter() {
-        let ty = field.ty;        
+    for field in fields.iter() {
+        let ty = &field.ty;        
         let attrs = &field.attrs;
 
         for attr in attrs {
@@ -239,8 +239,8 @@ fn expand_bitfield(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
  
      let mut ident_ty_list: Vec<(&Ident, &Type)> = Vec::new();
  
-     let size_calc = fields.clone().into_iter().map(|field| {
-         let ty = field.ty;
+     let size_calc = fields.iter().map(|field| {
+         let ty = &field.ty;
          if check_if_bool(&ty) {
              return quote! {+ 1};
          }
