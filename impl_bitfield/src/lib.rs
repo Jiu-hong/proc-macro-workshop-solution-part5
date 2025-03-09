@@ -50,9 +50,9 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
         },
     };
 
-    let discriminant_len = enum_elements.len();
+    let discriminants_count = enum_elements.len();
 
-    let bits_len = match logarithm_two(discriminant_len) {
+    let bits_len = match logarithm_two(discriminants_count) {
         Some(number) =>  number,
         None => {
             let error = Err(syn::Error::new(
@@ -70,7 +70,7 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
         quote! {
             // #[allow(non_snake_case)]
             fn #new_ident() {
-                let _: <<[();(#enum_ident::#ident as usize)/#discriminant_len] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
+                let _: <<[();(#enum_ident::#ident as usize)/#discriminants_count] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
             }
         }
     });
@@ -80,6 +80,8 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
             #enum_ident::#ident => #enum_ident::#ident,
         }
     });
+
+    
 
     let impl_default_inner = enum_elements.iter().map(|ident| {
         quote! {
@@ -99,9 +101,10 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
             }
         }
 
-        impl Clone for #enum_ident {
-            fn clone(&self) -> #enum_ident {
-                match self {
+
+        impl #enum_ident {
+            fn get_value(value: &<#enum_ident as Specifier>::AssocType) -> <#enum_ident as Specifier>::AssocType {
+                match value {
                     #(#impl_clone_inner)*
                 }
             }
@@ -119,12 +122,6 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
         impl Specifier for #enum_ident { 
             const BITS:usize = #bits_len;
             type AssocType = #enum_ident;
-        }
-
-        impl #enum_ident {
-            fn get_value(value: &<#enum_ident as Specifier>::AssocType) -> <#enum_ident as Specifier>::AssocType {
-                value.clone()
-            }
         }
 
         #(#impl_check_discrinminant_range)*
@@ -170,10 +167,9 @@ fn expand_bitfield(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
          syn::Data::Struct(syn::DataStruct { fields, .. }) => fields,
          _ => unimplemented!("here2"),
      };
-    //  for field in fields.clone() {
-    // let get_vec_length = fields.clone().iter().map(|field|{
-    for field in fields.clone().iter() {
-        let ty = field.ty.clone();        
+
+    for field in fields.clone().into_iter() {
+        let ty = field.ty;        
         let attrs = &field.attrs;
 
         for attr in attrs {
