@@ -28,11 +28,11 @@ fn logarithm_two(x: usize) -> Option<usize> {
 pub fn bitfield_specifier(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
 
-    let result = expand(ast).unwrap_or_else(Error::into_compile_error);
+    let result = expand_bitfield_specifier(ast).unwrap_or_else(Error::into_compile_error);
     result.into()
 }
 
-fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
+fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
     let data = ast.data;
     let enum_ident = ast.ident;
 
@@ -40,9 +40,6 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
     let first_enum_ident = match data {
         syn::Data::Enum(DataEnum { ref variants, .. }) => {
             for x in variants {
-                // eprintln!("variant's ident is {:#?}", x.ident);
-                // eprintln!("variant's discriminant is {:#?}", x.discriminant);
-
                 let ident = &x.ident;
                 enum_elements.push(ident);
             }
@@ -53,9 +50,9 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
         },
     };
 
-    let length = enum_elements.len();
+    let discriminant_len = enum_elements.len();
 
-    let bits_length = match logarithm_two(length) {
+    let bits_len = match logarithm_two(discriminant_len) {
         Some(number) =>  number,
         None => {
             let error = Err(syn::Error::new(
@@ -67,13 +64,12 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
         }
     };
 
-
-
     let impl_check_discrinminant_range = enum_elements.iter().map(|ident| {
+
         let new_ident = format_ident!("{}_check", ident);
         quote! {
             fn #new_ident() {
-                let _: <<[();(#enum_ident::#ident as usize)/#length] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
+                let _: <<[();(#enum_ident::#ident as usize)/#discriminant_len] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
             }
         }
     });
@@ -91,9 +87,9 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
     });
 
     let length_ident = format_ident!("{}_LENGTH",enum_ident);
-    let output1 = quote! {
+    let output = quote! {
 
-        const #length_ident:usize = #bits_length;
+        const #length_ident:usize = #bits_len;
        
         impl #enum_ident {
             fn discriminant(&self) -> u8 {
@@ -118,8 +114,8 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
             }
         }
 
-        impl Specifier for #enum_ident {
-            const BITS:usize = 3;
+        impl Specifier for #enum_ident { 
+            const BITS:usize = #bits_len;
             type AssocType = #enum_ident;
         }
 
@@ -132,7 +128,7 @@ fn expand(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
         #(#impl_check_discrinminant_range)*
     };
 
-    Ok(output1)
+    Ok(output)
 }
 
 
@@ -154,16 +150,15 @@ pub fn bitfield(
     input2: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     // eprintln!("input2: {:#?}", input2);
-    let input3_clone = input2.clone();
 
-    let ast: DeriveInput = parse_macro_input!(input3_clone);
 
-    let result = expand2(ast).unwrap_or_else(Error::into_compile_error);
+    let ast: DeriveInput = parse_macro_input!(input2);
+
+    let result = expand_bitfield(ast).unwrap_or_else(Error::into_compile_error);
     result.into()
 }
 
-
-fn expand2(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
+fn expand_bitfield(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
      // input2;
      let ident = ast.ident;
      let mut token_stream_vec:Vec<proc_macro2::TokenStream> = vec![];
@@ -183,20 +178,18 @@ fn expand2(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
             let tokens = attr.tokens.clone().into();
 
             if attr.path.is_ident("bits") {
-               let aaa:MyStruct = syn::parse(tokens).unwrap();
+               let my_struct:MyStruct = syn::parse(tokens).unwrap();
                 if let syn::Type::Path(syn::TypePath { path, .. }) = &ty {
-                   let mut label_length1 = aaa.literal.clone();
-                   label_length1.set_span(aaa.literal.span());
+                   let mut label_length = my_struct.literal.clone();
+                   label_length.set_span(my_struct.literal.span());
 
                    let ty_ident = &path.segments[0].ident;
                    let fn_ident = format_ident!("{}_LENGTH_fn",ty_ident);
                    let length_ident = format_ident!("{}_LENGTH",ty_ident);
 
-    
                    let x = quote!{
-                    //    const #new_ident:usize = #label_length;
                     fn #fn_ident() {
-                        let _: [_; #label_length1] = [(); #length_ident];
+                        let _: [_; #label_length] = [(); #length_ident];
                     }
                    };
                    token_stream_vec.push(x);
@@ -259,6 +252,10 @@ fn expand2(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
      let bit_length_stream = proc_macro2::TokenStream::from_iter(size_calc);
  
      let data_size = quote! {
+        fn _check_data_size() {
+            let _: MyType<[(); (0  #bit_length_stream) % 8]>;
+        }
+
          #[repr(C)]
          struct #ident {
              data: [u8; (0  #bit_length_stream) / 8]
@@ -360,7 +357,6 @@ fn expand2(ast: DeriveInput) -> Result<proc_macro2::TokenStream> {
          #get_set
      };
  
-     // input2
      Ok(output.into())
 }
 
