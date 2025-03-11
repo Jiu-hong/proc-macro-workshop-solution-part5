@@ -70,7 +70,8 @@ fn expand_bitfield_specifier(ast: DeriveInput) -> Result<proc_macro2::TokenStrea
         quote! {
             // #[allow(non_snake_case)]
             fn #new_ident() {
-                let _: <<[();(#enum_ident::#ident as usize)/#discriminants_count] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
+                // let _: <<[();(#enum_ident::#ident as usize)/#discriminants_count] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
+                let _: <<[();((#enum_ident::#ident as usize)/#discriminants_count !=0) as usize] as MyTempTrait>::CCC as DiscriminantInRange>::PlaceHolder;
             }
         }
     });
